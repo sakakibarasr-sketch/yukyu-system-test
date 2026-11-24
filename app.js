@@ -354,7 +354,7 @@
   function viewBackup() {
     return api("listBackups").then(need).then(function (rows) {
       var tr = rows.map(function (b) { return '<tr><td class="num">' + esc(b.createdAt.replace("T", " ")) + "</td><td>" + esc(b.name) + "</td><td>" + esc(b.createdBy) + '</td><td><button class="btn sec" data-restore="' + b.backupId + '">この時点に復元</button></td></tr>'; }).join("") || '<tr><td colspan="4" class="muted">バックアップはまだありません。</td></tr>';
-      return '<section class="panel" style="display:flex;flex-direction:column;gap:12px"><h2>バックアップ</h2><p class="muted" style="margin:0">バックアップは管理者のGoogleドライブ内（フォルダ「年休管理簿_バックアップ」）にだけ保存されます。復元すると、復元前の状態も自動でバックアップされます。変更履歴は復元しても消えません。</p>' +
+      return '<section class="panel" style="display:flex;flex-direction:column;gap:12px"><h2>バックアップ</h2><p class="muted" style="margin:0">バックアップは実行アカウントのマイドライブに保存されます。フォルダへの自動振り分けは行いません。復元すると、復元前の状態も自動でバックアップされます。変更履歴は復元しても消えません。</p>' +
         '<div class="toolbar"><button class="btn" id="bk-new">今すぐバックアップする</button></div><div id="bk-confirm"></div>' +
         '<div class="tablebox"><table class="list"><thead><tr><th>作成日時</th><th>名前</th><th>作成者</th><th>操作</th></tr></thead><tbody>' + tr + "</tbody></table></div></section>";
     });
