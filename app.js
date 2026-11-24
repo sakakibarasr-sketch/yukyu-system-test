@@ -107,15 +107,15 @@
     $("who").innerHTML = comp + "<span><b>" + esc(m.user.name) + "</b>（" + esc(m.user.roleLabel) + "）</span>" + '<button class="btn sec" id="logout">ログアウト</button>';
   }
   var TABS = [["list", "職員一覧"], ["ledger", "管理簿・カレンダー"], ["confirm", "予定の確定"], ["audit", "変更履歴"], ["selftest", "接続確認"]];
-  var ADMIN_TABS = [["approve", "付与予定の承認"], ["jobs", "自動処理"], ["users", "利用者"], ["backup", "バックアップ"]];
+  var ADMIN_TABS = [["registration", "会社・従業員登録"], ["approve", "付与予定の承認"], ["jobs", "自動処理"], ["users", "利用者"], ["backup", "バックアップ"]];
   function tabs() {
     var all = TABS.concat(isAdmin() ? ADMIN_TABS : []);
     return '<nav class="tabs" role="tablist">' + all.map(function (t) { return '<button role="tab" data-view="' + t[0] + '" aria-selected="' + (S.view === t[0]) + '">' + t[1] + "</button>"; }).join("") + "</nav>";
   }
   function route() {
     renderMsg();
-    var v = S.view, f = { list: viewList, ledger: viewLedger, confirm: viewConfirm, audit: viewAudit, selftest: viewSelfTest, approve: viewApprove, jobs: viewJobs, users: viewUsers, backup: viewBackup }[v] || viewList;
-    if (!S.companyId && v !== "users" && v !== "backup" && v !== "jobs") { $("main").innerHTML = tabs() + '<section class="panel">担当する関与先が設定されていません。管理者に連絡してください。</section>'; return; }
+    var v = S.view, f = { list: viewList, ledger: viewLedger, confirm: viewConfirm, audit: viewAudit, selftest: viewSelfTest, approve: viewApprove, jobs: viewJobs, users: viewUsers, backup: viewBackup, registration: viewRegistration }[v] || viewList;
+    if (!S.companyId && v !== "users" && v !== "backup" && v !== "jobs" && v !== "registration" && v !== "selftest") { $("main").innerHTML = tabs() + '<section class="panel">会社が未登録、または担当する関与先が設定されていません。管理者は「会社・従業員登録」から登録できます。</section>'; return; }
     $("main").innerHTML = tabs() + '<section class="panel"><p class="muted">読み込んでいます…</p></section>';
     f().then(function (html) { if (S.view === v) $("main").innerHTML = tabs() + html; }).catch(function (e) { if (e && e.error !== "not_logged_in") setMsg("err", (e && e.message) || "読み込みに失敗しました。"); });
   }
@@ -289,7 +289,7 @@
   }
 
   /* ---------- 変更履歴 ---------- */
-  var OPN = { login: "ログイン", saveLeave: "取得の登録・修正", cancelLeave: "取得の取消", confirmLeaves: "予定の確定", exportCsv: "CSV出力", decideApproval: "付与の承認", adjustBalance: "残数の手動調整", inviteUser: "利用者の招待", approveUser: "利用者の承認", disableUser: "利用者の停止", runJobsNow: "自動処理の実行", rerunJobs: "自動処理の再実行", createBackup: "バックアップ作成", restoreBackup: "バックアップ復元", setOperationMode: "運用モード変更", selfTest: "接続確認", bootstrap_admin: "管理者の初回登録" };
+  var OPN = { saveCompany: "会社の登録・編集", saveEmployee: "従業員の登録・編集", login: "ログイン", saveLeave: "取得の登録・修正", cancelLeave: "取得の取消", confirmLeaves: "予定の確定", exportCsv: "CSV出力", decideApproval: "付与の承認", adjustBalance: "残数の手動調整", inviteUser: "利用者の招待", approveUser: "利用者の承認", disableUser: "利用者の停止", runJobsNow: "自動処理の実行", rerunJobs: "自動処理の再実行", createBackup: "バックアップ作成", restoreBackup: "バックアップ復元", setOperationMode: "運用モード変更", selfTest: "接続確認", bootstrap_admin: "管理者の初回登録" };
   var RES = { ok: "完了", denied: "拒否", halted: "停止（保存せず）" };
   function viewAudit() {
     return api("readAudit", { companyId: S.companyId }).then(need).then(function (rows) {
@@ -360,12 +360,87 @@
     });
   }
 
+  /* ---------- 会社・従業員登録（管理者） ---------- */
+  var regState = { data: null, company: null, employee: null, companyKey: null, employeeKey: null };
+  function regKey(prefix) { return prefix + '-' + crypto.randomUUID(); }
+  function regInput(name, label, value, type, extra) {
+    return '<label>' + label + '<input name="' + name + '" type="' + (type || 'text') + '" value="' + esc(value) + '" ' + (extra || '') + '></label>';
+  }
+  function regSelect(name, label, values, current, locked) {
+    return '<label>' + label + '<select name="' + name + '" ' + (locked ? 'disabled' : '') + '>' + values.map(function (v) {
+      return '<option value="' + esc(v[0]) + '"' + (String(v[0]) === String(current) ? ' selected' : '') + '>' + esc(v[1]) + '</option>';
+    }).join('') + '</select></label>';
+  }
+  function viewRegistration() {
+    return api('registrationData').then(need).then(function (data) {
+      regState.data = data;
+      if (!regState.companyKey) regState.companyKey = regKey('C');
+      if (!regState.employeeKey) regState.employeeKey = regKey('E');
+      var c = data.companies.filter(function (x) { return x.companyId === regState.company; })[0];
+      var e = data.employees.filter(function (x) { return x.employeeId === regState.employee; })[0];
+      var rows = data.employees.filter(function (x) { return !S.companyId || x.companyId === S.companyId; });
+      var companyRows = data.companies.map(function (x) { return '<tr><td>' + esc(x.name) + '</td><td><button class="btn sec" data-regcompany="' + esc(x.companyId) + '">会社名を編集</button></td></tr>'; }).join('');
+      var empRows = rows.map(function (x) { return '<tr><td>' + esc(x.no) + '</td><td>' + esc(x.name) + '</td><td>' + esc(x.dept) + '</td><td>' + esc(x.status) + '</td><td><button class="btn sec" data-regemployee="' + esc(x.employeeId) + '">基本情報を編集</button></td></tr>'; }).join('');
+      var locked = e ? 'disabled' : '';
+      var h = '<section class="panel"><h2>会社・従業員登録</h2><p>管理者だけが登録・編集できます。登録内容はGoogleの管理簿に保存し、変更履歴を残します。</p>' +
+        '<p class="notice info">従業員登録では、有休の残数や過去の付与・取得記録は追加されません。残数の移行と計算確認が済むまでは、正式な残数管理に使わないでください。</p>' +
+        '<h3>会社</h3><div class="tablebox"><table class="list"><tbody>' + (companyRows || '<tr><td>最初に会社を登録してください。</td></tr>') + '</tbody></table></div>' +
+        '<form id="reg-company" class="form-grid"><h3>' + (c ? '会社名の編集' : '会社を追加') + '</h3>' +
+        regInput('name', '会社名（必須）', c ? c.name : '', 'text', 'required maxlength="100"') +
+        '<div class="toolbar"><button class="btn" type="submit">' + (c ? '会社名を保存' : '会社を登録') + '</button><button class="btn sec" type="button" id="reg-company-new">新しい会社の入力へ</button></div><p class="reg-result" aria-live="polite"></p></form>';
+      if (!data.companies.length) return h + '</section>';
+      var compValues = data.companies.map(function (x) { return [x.companyId, x.name]; });
+      var selectedDays = e ? e.workdays : [1,2,3,4,5];
+      h += '<h3>従業員一覧（選択中の会社）</h3><div class="tablebox"><table class="list"><thead><tr><th>番号</th><th>氏名</th><th>部署</th><th>在籍状態</th><th>編集</th></tr></thead><tbody>' + (empRows || '<tr><td colspan="5">まだ従業員がいません。</td></tr>') + '</tbody></table></div>' +
+        '<form id="reg-employee" class="form-grid"><h3>' + (e ? '従業員の基本情報を編集' : '従業員を追加') + '</h3>' +
+        regSelect('companyId', '会社（必須）', compValues, e ? e.companyId : S.companyId, !!e) +
+        regInput('no', '従業員番号（会社内で重複不可）', e ? e.no : '', 'text', 'required maxlength="30"') +
+        regInput('name', '氏名（必須）', e ? e.name : '', 'text', 'required maxlength="100"') +
+        regInput('dept', '部署（任意）', e ? e.dept : '', 'text', 'maxlength="100"') +
+        regSelect('status', '在籍状態', [['在籍','在籍'],['退職','退職']], e ? e.status : '在籍', false) +
+        regInput('hired', '入社日（必須）', e ? e.hired : '', 'date', 'required min="1900-01-01" max="2199-12-31" ' + locked) +
+        '<fieldset><legend>勤務曜日（1つ以上）</legend>' + WD.map(function (label, d) { return '<label class="check"><input type="checkbox" name="workdays" value="' + d + '"' + (selectedDays.indexOf(d) >= 0 ? ' checked' : '') + ' ' + locked + '>' + label + '</label>'; }).join('') + '</fieldset>' +
+        regInput('scheduledHours', '1日の所定労働時間（必須・例：7.5）', e ? e.scheduledHours : '', 'number', 'required min="0.01" max="24" step="0.01" ' + locked) +
+        regSelect('weeklyDays', '週所定労働日数（必須）', [['','選択してください'],[1,'1日'],[2,'2日'],[3,'3日'],[4,'4日'],[5,'5日'],[6,'6日']], e ? e.weeklyDays : '', !!e) +
+        regSelect('ruleType', '付与区分（勤務条件に基づき選択）', [['','選択してください'],['通常','通常'],['比例','比例']], e ? e.ruleType : '', !!e) +
+        '<label class="check"><input type="checkbox" name="hourly" ' + (e && e.hourly ? 'checked ' : '') + locked + '>時間単位年休を利用する（適用条件を確認済みの場合）</label>' +
+        regInput('nextGrantDate', '次回付与日（任意・未確認なら空欄）', e ? e.nextGrantDate : '', 'date', 'min="1900-01-01" max="2199-12-31" ' + locked) +
+        '<p class="muted">勤務曜日はカレンダーに使います。週所定労働日数・付与区分・次回付与日は会社の勤務条件に照らして確認してください。付与区分は自動判定しません。登録後の入社日・勤務条件・次回付与日の変更は、この画面では行いません。</p>' +
+        '<div class="toolbar"><button class="btn" type="submit">' + (e ? '基本情報を保存' : '従業員を登録') + '</button><button class="btn sec" type="button" id="reg-employee-new">次の従業員を入力</button></div><p class="reg-result" aria-live="polite"></p></form></section>';
+      return h;
+    });
+  }
+  function regSubmit(form) {
+    var isCompany = form.id === 'reg-company', data = regState.data;
+    var old = (isCompany ? data.companies : data.employees).filter(function (x) { return isCompany ? x.companyId === regState.company : x.employeeId === regState.employee; })[0];
+    var field = function (name) { return form.elements.namedItem(name); };
+    var args = isCompany ? { companyId: old ? old.companyId : regState.companyKey, name: field('name').value } : {
+      employeeId: old ? old.employeeId : regState.employeeKey, companyId: field('companyId').value,
+      no: field('no').value, name: field('name').value, dept: field('dept').value, status: field('status').value,
+      hired: field('hired').value, scheduledHours: field('scheduledHours').value, weeklyDays: field('weeklyDays').value,
+      ruleType: field('ruleType').value, hourly: field('hourly').checked, nextGrantDate: field('nextGrantDate').value,
+      workdays: Array.prototype.map.call(form.querySelectorAll('input[name="workdays"]:checked'), function (x) { return Number(x.value); })
+    };
+    if (old) args.revision = old.revision;
+    var result = form.querySelector('.reg-result'), button = form.querySelector('button[type="submit"]');
+    result.textContent = '保存しています…'; button.disabled = true;
+    api(isCompany ? 'saveCompany' : 'saveEmployee', args).then(function (r) {
+      if (!r.ok) { result.textContent = r.message || '保存できませんでした。'; button.disabled = false; return; }
+      if (isCompany) { S.companyId = r.data.companyId; regState.company = null; regState.companyKey = null; }
+      else { regState.employee = null; regState.employeeKey = null; }
+      S.empId = null; S.cache = {}; setMsg('ok', isCompany ? '会社を保存しました。従業員を入力できます。' : '従業員を保存しました。次の方を入力できます。');
+      start();
+    }).catch(function () { if (button.isConnected) { button.disabled = false; result.textContent = '保存結果を確認できません。再読み込み後に一覧を確認してください。'; } });
+  }
+
   /* ---------- 操作 ---------- */
   document.addEventListener("click", function (ev) {
     var t = ev.target.closest("button,tr[data-open]");
     if (!t) return;
+    if (t.dataset.regcompany || t.id === "reg-company-new") { regState.company = t.dataset.regcompany || null; regState.companyKey = null; route(); return; }
+    if (t.dataset.regemployee || t.id === "reg-employee-new") { regState.employee = t.dataset.regemployee || null; regState.employeeKey = null; route(); return; }
     if (t.id === "logout") { api("logout").catch(function () {}); logoutLocal(); S.msg = null; showLogin("ログアウトしました。"); return; }
-    if (t.dataset.view) { S.view = t.dataset.view; S.msg = null; route(); return; }
+    if (t.dataset.view) { S.view = t.dataset.view; S.msg = null; regState.company = null; regState.employee = null; route(); return; }
     if (t.dataset.open) { S.empId = t.dataset.open; S.view = "ledger"; S.msg = null; route(); return; }
     if (t.id === "p-prev" || t.id === "p-next" || t.id === "p-cur") {
       var L = S.cache.ledger; S.pIdx[S.empId] = t.id === "p-cur" ? L.currentIndex : L.index + (t.id === "p-next" ? 1 : -1); S.msg = null; route(); return;
@@ -438,7 +513,7 @@
   });
   document.addEventListener("change", function (ev) {
     var t = ev.target;
-    if (t.id === "sel-comp") { S.companyId = t.value; S.empId = null; S.cache = {}; S.sel = {}; S.msg = null; route(); return; }
+    if (t.id === "sel-comp") { S.companyId = t.value; regState.employee = null; S.empId = null; S.cache = {}; S.sel = {}; S.msg = null; route(); return; }
     if (t.id === "sel-emp") { S.empId = t.value; S.msg = null; route(); return; }
     if (t.dataset && t.dataset.ck) { if (t.checked) S.sel[t.dataset.ck] = 1; else delete S.sel[t.dataset.ck]; route(); return; }
     if (t.name === "kind" && dlg) { dlg.kind = t.value; dlg.err = null; dlg.halt = null; renderDialog(); return; }
@@ -446,6 +521,7 @@
   });
   document.addEventListener("submit", function (ev) {
     var f = ev.target; ev.preventDefault();
+    if (f.id === "reg-company" || f.id === "reg-employee") { regSubmit(f); return; }
     if (f.id === "dlg-form") { saveFromDialog(); return; }
     if (f.id === "inv-form") {
       var comps = Array.prototype.map.call(f.querySelectorAll('input[name="inv-comp"]:checked'), function (x) { return x.value; });
